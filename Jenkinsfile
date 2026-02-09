@@ -55,8 +55,8 @@ spec:
     }
     environment {
         APP_NAME = "order-service"
-        HELM_RELEASE = "${HELM_RELEASE:-order-service}"
-        CHART_PATH = "${CHART_PATH:-helm}"
+        HELM_RELEASE = "${params.HELM_RELEASE ?: 'order-service'}"
+        CHART_PATH = "${params.CHART_PATH ?: 'helm'}"
     }
     stages {
         stage('Checkout') {
