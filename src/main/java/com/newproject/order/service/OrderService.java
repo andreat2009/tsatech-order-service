@@ -29,6 +29,13 @@ public class OrderService {
         order.setCurrency(request.getCurrency());
         order.setTotal(request.getTotal());
         order.setStatus(request.getStatus() != null ? request.getStatus() : "NEW");
+        order.setCustomerEmail(request.getCustomerEmail());
+        order.setCustomerFirstName(request.getCustomerFirstName());
+        order.setCustomerLastName(request.getCustomerLastName());
+        order.setCustomerPhone(request.getCustomerPhone());
+        order.setCustomerLocale(request.getCustomerLocale());
+        order.setOrderComment(request.getOrderComment());
+        order.setGuestCheckout(Boolean.TRUE.equals(request.getGuestCheckout()));
         OffsetDateTime now = OffsetDateTime.now();
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
@@ -46,6 +53,27 @@ public class OrderService {
         order.setCurrency(request.getCurrency());
         order.setTotal(request.getTotal());
         order.setStatus(request.getStatus() != null ? request.getStatus() : order.getStatus());
+        if (request.getCustomerEmail() != null) {
+            order.setCustomerEmail(request.getCustomerEmail());
+        }
+        if (request.getCustomerFirstName() != null) {
+            order.setCustomerFirstName(request.getCustomerFirstName());
+        }
+        if (request.getCustomerLastName() != null) {
+            order.setCustomerLastName(request.getCustomerLastName());
+        }
+        if (request.getCustomerPhone() != null) {
+            order.setCustomerPhone(request.getCustomerPhone());
+        }
+        if (request.getCustomerLocale() != null) {
+            order.setCustomerLocale(request.getCustomerLocale());
+        }
+        if (request.getOrderComment() != null) {
+            order.setOrderComment(request.getOrderComment());
+        }
+        if (request.getGuestCheckout() != null) {
+            order.setGuestCheckout(request.getGuestCheckout());
+        }
         order.setUpdatedAt(OffsetDateTime.now());
 
         Order saved = orderRepository.save(order);
@@ -87,6 +115,13 @@ public class OrderService {
         response.setCurrency(order.getCurrency());
         response.setTotal(order.getTotal());
         response.setStatus(order.getStatus());
+        response.setCustomerEmail(order.getCustomerEmail());
+        response.setCustomerFirstName(order.getCustomerFirstName());
+        response.setCustomerLastName(order.getCustomerLastName());
+        response.setCustomerPhone(order.getCustomerPhone());
+        response.setCustomerLocale(order.getCustomerLocale());
+        response.setOrderComment(order.getOrderComment());
+        response.setGuestCheckout(order.getGuestCheckout());
         response.setCreatedAt(order.getCreatedAt());
         response.setUpdatedAt(order.getUpdatedAt());
         return response;
