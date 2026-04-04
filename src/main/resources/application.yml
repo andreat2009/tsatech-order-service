@@ -42,6 +42,8 @@ order:
   events:
     enabled: ${ORDER_EVENTS_ENABLED:true}
     topic: ${ORDER_EVENTS_TOPIC:order.events}
+  payment-events:
+    topic: ${PAYMENT_EVENTS_TOPIC:payment.events}
 
 management:
   endpoints:

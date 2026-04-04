@@ -1,10 +1,14 @@
 package com.newproject.order.service;
 
 import com.newproject.order.domain.Order;
+import com.newproject.order.domain.OrderCustomFieldValue;
+import com.newproject.order.dto.OrderCustomFieldRequest;
+import com.newproject.order.dto.OrderCustomFieldResponse;
 import com.newproject.order.dto.OrderRequest;
 import com.newproject.order.dto.OrderResponse;
 import com.newproject.order.events.EventPublisher;
 import com.newproject.order.exception.NotFoundException;
+import com.newproject.order.repository.OrderCustomFieldValueRepository;
 import com.newproject.order.repository.OrderRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -15,10 +19,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class OrderService {
     private final OrderRepository orderRepository;
+    private final OrderCustomFieldValueRepository orderCustomFieldValueRepository;
     private final EventPublisher eventPublisher;
 
-    public OrderService(OrderRepository orderRepository, EventPublisher eventPublisher) {
+    public OrderService(OrderRepository orderRepository, OrderCustomFieldValueRepository orderCustomFieldValueRepository, EventPublisher eventPublisher) {
         this.orderRepository = orderRepository;
+        this.orderCustomFieldValueRepository = orderCustomFieldValueRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -41,6 +47,7 @@ public class OrderService {
         order.setUpdatedAt(now);
 
         Order saved = orderRepository.save(order);
+        syncCustomFields(saved, request.getCustomFields());
         eventPublisher.publish("ORDER_CREATED", "order", saved.getId().toString(), toResponse(saved));
         return toResponse(saved);
     }
@@ -77,6 +84,9 @@ public class OrderService {
         order.setUpdatedAt(OffsetDateTime.now());
 
         Order saved = orderRepository.save(order);
+        if (request.getCustomFields() != null) {
+            syncCustomFields(saved, request.getCustomFields());
+        }
         eventPublisher.publish("ORDER_UPDATED", "order", saved.getId().toString(), toResponse(saved));
         return toResponse(saved);
     }
@@ -108,6 +118,54 @@ public class OrderService {
         eventPublisher.publish("ORDER_CANCELLED", "order", id.toString(), null);
     }
 
+    @Transactional
+    public void syncStatusFromPayment(Long orderId, String status) {
+        Order order = orderRepository.findById(orderId)
+            .orElseThrow(() -> new NotFoundException("Order not found"));
+        if (status == null || status.equalsIgnoreCase(order.getStatus())) {
+            return;
+        }
+        order.setStatus(status);
+        order.setUpdatedAt(OffsetDateTime.now());
+        Order saved = orderRepository.save(order);
+        eventPublisher.publish("ORDER_UPDATED", "order", saved.getId().toString(), toResponse(saved));
+    }
+
+
+private void syncCustomFields(Order order, List<OrderCustomFieldRequest> requests) {
+    orderCustomFieldValueRepository.deleteByOrderId(order.getId());
+    if (requests == null || requests.isEmpty()) {
+        return;
+    }
+    OffsetDateTime now = OffsetDateTime.now();
+    for (OrderCustomFieldRequest request : requests) {
+        if (request == null || isBlank(request.getFieldCode())) {
+            continue;
+        }
+        OrderCustomFieldValue value = new OrderCustomFieldValue();
+        value.setOrder(order);
+        value.setFieldCode(trimToNull(request.getFieldCode()));
+        value.setFieldLabel(trimToNull(request.getFieldLabel()) != null ? trimToNull(request.getFieldLabel()) : trimToNull(request.getFieldCode()));
+        value.setFieldType(trimToNull(request.getFieldType()));
+        value.setFieldScope(trimToNull(request.getFieldScope()));
+        value.setFieldValue(trimToNull(request.getFieldValue()));
+        value.setCreatedAt(now);
+        orderCustomFieldValueRepository.save(value);
+    }
+}
+
+private boolean isBlank(String value) {
+    return value == null || value.isBlank();
+}
+
+private String trimToNull(String value) {
+    if (value == null) {
+        return null;
+    }
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+}
+
     private OrderResponse toResponse(Order order) {
         OrderResponse response = new OrderResponse();
         response.setId(order.getId());
@@ -122,6 +180,16 @@ public class OrderService {
         response.setCustomerLocale(order.getCustomerLocale());
         response.setOrderComment(order.getOrderComment());
         response.setGuestCheckout(order.getGuestCheckout());
+        response.setCustomFields(orderCustomFieldValueRepository.findByOrderIdOrderByIdAsc(order.getId()).stream().map(value -> {
+            OrderCustomFieldResponse field = new OrderCustomFieldResponse();
+            field.setId(value.getId());
+            field.setFieldCode(value.getFieldCode());
+            field.setFieldLabel(value.getFieldLabel());
+            field.setFieldType(value.getFieldType());
+            field.setFieldScope(value.getFieldScope());
+            field.setFieldValue(value.getFieldValue());
+            return field;
+        }).toList());
         response.setCreatedAt(order.getCreatedAt());
         response.setUpdatedAt(order.getUpdatedAt());
         return response;

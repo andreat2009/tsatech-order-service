@@ -2,6 +2,7 @@ package com.newproject.order.dto;
 
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
+import java.util.List;
 
 public class OrderRequest {
     @NotNull
@@ -21,6 +22,7 @@ public class OrderRequest {
     private String customerLocale;
     private String orderComment;
     private Boolean guestCheckout;
+    private List<OrderCustomFieldRequest> customFields;
 
     public Long getCustomerId() {
         return customerId;
@@ -108,5 +110,13 @@ public class OrderRequest {
 
     public void setGuestCheckout(Boolean guestCheckout) {
         this.guestCheckout = guestCheckout;
+    }
+
+    public List<OrderCustomFieldRequest> getCustomFields() {
+        return customFields;
+    }
+
+    public void setCustomFields(List<OrderCustomFieldRequest> customFields) {
+        this.customFields = customFields;
     }
 }
