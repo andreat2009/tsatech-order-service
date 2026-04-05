@@ -1,14 +1,17 @@
 package com.newproject.order.service;
 
 import com.newproject.order.domain.Order;
+import com.newproject.order.domain.OrderItem;
 import com.newproject.order.domain.OrderCustomFieldValue;
 import com.newproject.order.dto.OrderCustomFieldRequest;
 import com.newproject.order.dto.OrderCustomFieldResponse;
+import com.newproject.order.dto.OrderItemResponse;
 import com.newproject.order.dto.OrderRequest;
 import com.newproject.order.dto.OrderResponse;
 import com.newproject.order.events.EventPublisher;
 import com.newproject.order.exception.NotFoundException;
 import com.newproject.order.repository.OrderCustomFieldValueRepository;
+import com.newproject.order.repository.OrderItemRepository;
 import com.newproject.order.repository.OrderRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -20,11 +23,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class OrderService {
     private final OrderRepository orderRepository;
     private final OrderCustomFieldValueRepository orderCustomFieldValueRepository;
+    private final OrderItemRepository orderItemRepository;
     private final EventPublisher eventPublisher;
 
-    public OrderService(OrderRepository orderRepository, OrderCustomFieldValueRepository orderCustomFieldValueRepository, EventPublisher eventPublisher) {
+    public OrderService(OrderRepository orderRepository, OrderCustomFieldValueRepository orderCustomFieldValueRepository, OrderItemRepository orderItemRepository, EventPublisher eventPublisher) {
         this.orderRepository = orderRepository;
         this.orderCustomFieldValueRepository = orderCustomFieldValueRepository;
+        this.orderItemRepository = orderItemRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -122,15 +127,56 @@ public class OrderService {
     public void syncStatusFromPayment(Long orderId, String status) {
         Order order = orderRepository.findById(orderId)
             .orElseThrow(() -> new NotFoundException("Order not found"));
-        if (status == null || status.equalsIgnoreCase(order.getStatus())) {
+        String previousStatus = order.getStatus();
+        if (status == null || status.equalsIgnoreCase(previousStatus)) {
             return;
         }
         order.setStatus(status);
         order.setUpdatedAt(OffsetDateTime.now());
         Order saved = orderRepository.save(order);
         eventPublisher.publish("ORDER_UPDATED", "order", saved.getId().toString(), toResponse(saved));
+        publishInventoryLifecycleEvents(saved.getId(), previousStatus, status);
     }
 
+    private void publishInventoryLifecycleEvents(Long orderId, String previousStatus, String currentStatus) {
+        if (orderId == null || currentStatus == null) {
+            return;
+        }
+
+        if (isPaidStatus(currentStatus) && !isPaidStatus(previousStatus)) {
+            publishOrderItemInventoryEvents(orderId, "ORDER_ITEM_COMMITTED");
+        }
+
+        if (isFailureStatus(currentStatus) && !isFailureStatus(previousStatus)) {
+            publishOrderItemInventoryEvents(orderId, "ORDER_ITEM_RELEASED");
+        }
+    }
+
+    private void publishOrderItemInventoryEvents(Long orderId, String eventType) {
+        for (OrderItem item : orderItemRepository.findByOrderId(orderId)) {
+            eventPublisher.publish(eventType, "order_item", item.getId().toString(), toOrderItemResponse(item));
+        }
+    }
+
+    private boolean isPaidStatus(String status) {
+        return status != null && "PAID".equalsIgnoreCase(status);
+    }
+
+    private boolean isFailureStatus(String status) {
+        return status != null && "PAYMENT_FAILED".equalsIgnoreCase(status);
+    }
+
+    private OrderItemResponse toOrderItemResponse(OrderItem item) {
+        OrderItemResponse response = new OrderItemResponse();
+        response.setId(item.getId());
+        response.setOrderId(item.getOrder().getId());
+        response.setProductId(item.getProductId());
+        response.setSku(item.getSku());
+        response.setName(item.getName());
+        response.setQuantity(item.getQuantity());
+        response.setUnitPrice(item.getUnitPrice());
+        return response;
+    }
 
 private void syncCustomFields(Order order, List<OrderCustomFieldRequest> requests) {
     orderCustomFieldValueRepository.deleteByOrderId(order.getId());
