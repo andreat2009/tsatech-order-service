@@ -72,6 +72,22 @@ class OrderServicePaymentInventoryEventTest {
         verify(eventPublisher).publish(eq("ORDER_ITEM_COMMITTED"), eq("order_item"), eq("11"), any());
     }
 
+
+    @Test
+    void cancelledPaymentPublishesInventoryReleaseEvents() {
+        Order order = orderWithStatus("PENDING_PAYMENT");
+        OrderItem item = orderItem(order, 11L, 1008L, 3);
+
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderItemRepository.findByOrderId(10L)).thenReturn(List.of(item));
+
+        orderService.syncStatusFromPayment(10L, "PAYMENT_CANCELLED");
+
+        verify(eventPublisher).publish(eq("ORDER_UPDATED"), eq("order"), eq("10"), any());
+        verify(eventPublisher).publish(eq("ORDER_ITEM_RELEASED"), eq("order_item"), eq("11"), any());
+    }
+
     private Order orderWithStatus(String status) {
         Order order = new Order();
         order.setId(10L);

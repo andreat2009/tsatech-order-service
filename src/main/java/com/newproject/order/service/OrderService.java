@@ -163,7 +163,11 @@ public class OrderService {
     }
 
     private boolean isFailureStatus(String status) {
-        return status != null && "PAYMENT_FAILED".equalsIgnoreCase(status);
+        return status != null
+            && ("PAYMENT_FAILED".equalsIgnoreCase(status)
+            || "PAYMENT_CANCELLED".equalsIgnoreCase(status)
+            || "PAYMENT_CANCELED".equalsIgnoreCase(status)
+            || "CANCELLED".equalsIgnoreCase(status));
     }
 
     private OrderItemResponse toOrderItemResponse(OrderItem item) {
