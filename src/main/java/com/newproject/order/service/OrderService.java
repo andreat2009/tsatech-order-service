@@ -1,35 +1,51 @@
 package com.newproject.order.service;
 
 import com.newproject.order.domain.Order;
-import com.newproject.order.domain.OrderItem;
 import com.newproject.order.domain.OrderCustomFieldValue;
+import com.newproject.order.domain.OrderItem;
 import com.newproject.order.dto.OrderCustomFieldRequest;
 import com.newproject.order.dto.OrderCustomFieldResponse;
 import com.newproject.order.dto.OrderItemResponse;
 import com.newproject.order.dto.OrderRequest;
 import com.newproject.order.dto.OrderResponse;
+import com.newproject.order.dto.PagedResponse;
 import com.newproject.order.events.EventPublisher;
 import com.newproject.order.exception.NotFoundException;
 import com.newproject.order.repository.OrderCustomFieldValueRepository;
 import com.newproject.order.repository.OrderItemRepository;
 import com.newproject.order.repository.OrderRepository;
+import com.newproject.order.repository.OrderReturnRecordRepository;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class OrderService {
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final OrderRepository orderRepository;
     private final OrderCustomFieldValueRepository orderCustomFieldValueRepository;
     private final OrderItemRepository orderItemRepository;
+    private final OrderReturnRecordRepository orderReturnRecordRepository;
     private final EventPublisher eventPublisher;
 
-    public OrderService(OrderRepository orderRepository, OrderCustomFieldValueRepository orderCustomFieldValueRepository, OrderItemRepository orderItemRepository, EventPublisher eventPublisher) {
+    public OrderService(
+        OrderRepository orderRepository,
+        OrderCustomFieldValueRepository orderCustomFieldValueRepository,
+        OrderItemRepository orderItemRepository,
+        OrderReturnRecordRepository orderReturnRecordRepository,
+        EventPublisher eventPublisher
+    ) {
         this.orderRepository = orderRepository;
         this.orderCustomFieldValueRepository = orderCustomFieldValueRepository;
         this.orderItemRepository = orderItemRepository;
+        this.orderReturnRecordRepository = orderReturnRecordRepository;
         this.eventPublisher = eventPublisher;
     }
 
@@ -106,19 +122,45 @@ public class OrderService {
     @Transactional(readOnly = true)
     public List<OrderResponse> list(Long customerId) {
         if (customerId != null) {
-            return orderRepository.findByCustomerId(customerId).stream()
+            return orderRepository.findByCustomerIdOrderByCreatedAtDesc(customerId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
         }
-        return orderRepository.findAll().stream()
+        return orderRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt")).stream()
             .map(this::toResponse)
             .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<OrderResponse> listPaged(Long customerId, int page, int size) {
+        Pageable pageable = PageRequest.of(
+            Math.max(0, page),
+            Math.max(1, Math.min(size, MAX_PAGE_SIZE)),
+            Sort.by(Sort.Direction.DESC, "createdAt")
+        );
+
+        Page<Order> result = customerId != null
+            ? orderRepository.findByCustomerId(customerId, pageable)
+            : orderRepository.findAll(pageable);
+
+        return PagedResponse.from(result.map(this::toResponse));
     }
 
     @Transactional
     public void delete(Long id) {
         Order order = orderRepository.findById(id)
             .orElseThrow(() -> new NotFoundException("Order not found"));
+
+        List<OrderItem> orderItems = orderItemRepository.findByOrderId(id);
+        if (shouldReleaseReservationsOnDelete(order.getStatus())) {
+            for (OrderItem item : orderItems) {
+                eventPublisher.publish("ORDER_ITEM_RELEASED", "order_item", item.getId().toString(), toOrderItemResponse(item));
+            }
+        }
+
+        orderReturnRecordRepository.deleteByOrderId(id);
+        orderCustomFieldValueRepository.deleteByOrderId(id);
+        orderItemRepository.deleteByOrderId(id);
         orderRepository.delete(order);
         eventPublisher.publish("ORDER_CANCELLED", "order", id.toString(), null);
     }
@@ -170,6 +212,19 @@ public class OrderService {
             || "CANCELLED".equalsIgnoreCase(status));
     }
 
+    private boolean shouldReleaseReservationsOnDelete(String status) {
+        if (status == null) {
+            return true;
+        }
+        return "NEW".equalsIgnoreCase(status)
+            || "PENDING_PAYMENT".equalsIgnoreCase(status)
+            || "CREATED".equalsIgnoreCase(status)
+            || "REDIRECT_REQUIRED".equalsIgnoreCase(status)
+            || "APPROVED".equalsIgnoreCase(status)
+            || "CAPTURE_PENDING".equalsIgnoreCase(status)
+            || "PENDING_OFFLINE".equalsIgnoreCase(status);
+    }
+
     private OrderItemResponse toOrderItemResponse(OrderItem item) {
         OrderItemResponse response = new OrderItemResponse();
         response.setId(item.getId());
@@ -182,39 +237,39 @@ public class OrderService {
         return response;
     }
 
-private void syncCustomFields(Order order, List<OrderCustomFieldRequest> requests) {
-    orderCustomFieldValueRepository.deleteByOrderId(order.getId());
-    if (requests == null || requests.isEmpty()) {
-        return;
-    }
-    OffsetDateTime now = OffsetDateTime.now();
-    for (OrderCustomFieldRequest request : requests) {
-        if (request == null || isBlank(request.getFieldCode())) {
-            continue;
+    private void syncCustomFields(Order order, List<OrderCustomFieldRequest> requests) {
+        orderCustomFieldValueRepository.deleteByOrderId(order.getId());
+        if (requests == null || requests.isEmpty()) {
+            return;
         }
-        OrderCustomFieldValue value = new OrderCustomFieldValue();
-        value.setOrder(order);
-        value.setFieldCode(trimToNull(request.getFieldCode()));
-        value.setFieldLabel(trimToNull(request.getFieldLabel()) != null ? trimToNull(request.getFieldLabel()) : trimToNull(request.getFieldCode()));
-        value.setFieldType(trimToNull(request.getFieldType()));
-        value.setFieldScope(trimToNull(request.getFieldScope()));
-        value.setFieldValue(trimToNull(request.getFieldValue()));
-        value.setCreatedAt(now);
-        orderCustomFieldValueRepository.save(value);
+        OffsetDateTime now = OffsetDateTime.now();
+        for (OrderCustomFieldRequest request : requests) {
+            if (request == null || isBlank(request.getFieldCode())) {
+                continue;
+            }
+            OrderCustomFieldValue value = new OrderCustomFieldValue();
+            value.setOrder(order);
+            value.setFieldCode(trimToNull(request.getFieldCode()));
+            value.setFieldLabel(trimToNull(request.getFieldLabel()) != null ? trimToNull(request.getFieldLabel()) : trimToNull(request.getFieldCode()));
+            value.setFieldType(trimToNull(request.getFieldType()));
+            value.setFieldScope(trimToNull(request.getFieldScope()));
+            value.setFieldValue(trimToNull(request.getFieldValue()));
+            value.setCreatedAt(now);
+            orderCustomFieldValueRepository.save(value);
+        }
     }
-}
 
-private boolean isBlank(String value) {
-    return value == null || value.isBlank();
-}
-
-private String trimToNull(String value) {
-    if (value == null) {
-        return null;
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
-    String trimmed = value.trim();
-    return trimmed.isEmpty() ? null : trimmed;
-}
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
 
     private OrderResponse toResponse(Order order) {
         OrderResponse response = new OrderResponse();
