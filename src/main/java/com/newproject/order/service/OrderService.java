@@ -15,6 +15,7 @@ import com.newproject.order.repository.OrderCustomFieldValueRepository;
 import com.newproject.order.repository.OrderItemRepository;
 import com.newproject.order.repository.OrderRepository;
 import com.newproject.order.repository.OrderReturnRecordRepository;
+import com.newproject.order.security.RequestActor;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -22,6 +23,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -34,23 +36,28 @@ public class OrderService {
     private final OrderItemRepository orderItemRepository;
     private final OrderReturnRecordRepository orderReturnRecordRepository;
     private final EventPublisher eventPublisher;
+    private final RequestActor requestActor;
 
     public OrderService(
         OrderRepository orderRepository,
         OrderCustomFieldValueRepository orderCustomFieldValueRepository,
         OrderItemRepository orderItemRepository,
         OrderReturnRecordRepository orderReturnRecordRepository,
-        EventPublisher eventPublisher
+        EventPublisher eventPublisher,
+        RequestActor requestActor
     ) {
         this.orderRepository = orderRepository;
         this.orderCustomFieldValueRepository = orderCustomFieldValueRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderReturnRecordRepository = orderReturnRecordRepository;
         this.eventPublisher = eventPublisher;
+        this.requestActor = requestActor;
     }
 
     @Transactional
     public OrderResponse create(OrderRequest request) {
+        requestActor.assertCustomerAccessIfAuthenticated(request.getCustomerId());
+
         Order order = new Order();
         order.setCustomerId(request.getCustomerId());
         order.setCurrency(request.getCurrency());
@@ -77,6 +84,14 @@ public class OrderService {
     public OrderResponse update(Long id, OrderRequest request) {
         Order order = orderRepository.findById(id)
             .orElseThrow(() -> new NotFoundException("Order not found"));
+        assertOrderMutationAllowed(order);
+
+        if (request.getCustomerId() != null && !request.getCustomerId().equals(order.getCustomerId())) {
+            if (!requestActor.isAdmin()) {
+                throw new AccessDeniedException("You cannot reassign another customer's order");
+            }
+            order.setCustomerId(request.getCustomerId());
+        }
 
         order.setCurrency(request.getCurrency());
         order.setTotal(request.getTotal());
@@ -116,13 +131,15 @@ public class OrderService {
     public OrderResponse get(Long id) {
         Order order = orderRepository.findById(id)
             .orElseThrow(() -> new NotFoundException("Order not found"));
+        requestActor.assertCustomerAccessIfAuthenticated(order.getCustomerId());
         return toResponse(order);
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> list(Long customerId) {
-        if (customerId != null) {
-            return orderRepository.findByCustomerIdOrderByCreatedAtDesc(customerId).stream()
+        Long scopedCustomerId = requestActor.resolveScopedCustomerId(customerId);
+        if (scopedCustomerId != null) {
+            return orderRepository.findByCustomerIdOrderByCreatedAtDesc(scopedCustomerId).stream()
                 .map(this::toResponse)
                 .collect(Collectors.toList());
         }
@@ -139,8 +156,9 @@ public class OrderService {
             Sort.by(Sort.Direction.DESC, "createdAt")
         );
 
-        Page<Order> result = customerId != null
-            ? orderRepository.findByCustomerId(customerId, pageable)
+        Long scopedCustomerId = requestActor.resolveScopedCustomerId(customerId);
+        Page<Order> result = scopedCustomerId != null
+            ? orderRepository.findByCustomerId(scopedCustomerId, pageable)
             : orderRepository.findAll(pageable);
 
         return PagedResponse.from(result.map(this::toResponse));
@@ -150,6 +168,7 @@ public class OrderService {
     public void delete(Long id) {
         Order order = orderRepository.findById(id)
             .orElseThrow(() -> new NotFoundException("Order not found"));
+        requestActor.assertCustomerAccessIfAuthenticated(order.getCustomerId());
 
         List<OrderItem> orderItems = orderItemRepository.findByOrderId(id);
         if (shouldReleaseReservationsOnDelete(order.getStatus())) {
@@ -178,6 +197,16 @@ public class OrderService {
         Order saved = orderRepository.save(order);
         eventPublisher.publish("ORDER_UPDATED", "order", saved.getId().toString(), toResponse(saved));
         publishInventoryLifecycleEvents(saved.getId(), previousStatus, status);
+    }
+
+    private void assertOrderMutationAllowed(Order order) {
+        if (requestActor.isAuthenticated()) {
+            requestActor.assertCustomerAccessIfAuthenticated(order.getCustomerId());
+            return;
+        }
+        if (!Boolean.TRUE.equals(order.getGuestCheckout())) {
+            throw new AccessDeniedException("Only guest orders can be updated without authentication");
+        }
     }
 
     private void publishInventoryLifecycleEvents(Long orderId, String previousStatus, String currentStatus) {

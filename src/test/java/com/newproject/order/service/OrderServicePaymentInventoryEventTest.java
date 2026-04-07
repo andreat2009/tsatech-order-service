@@ -14,6 +14,7 @@ import com.newproject.order.repository.OrderCustomFieldValueRepository;
 import com.newproject.order.repository.OrderItemRepository;
 import com.newproject.order.repository.OrderRepository;
 import com.newproject.order.repository.OrderReturnRecordRepository;
+import com.newproject.order.security.RequestActor;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -44,11 +45,16 @@ class OrderServicePaymentInventoryEventTest {
     @Mock
     private EventPublisher eventPublisher;
 
+    @Mock
+    private RequestActor requestActor;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderService(orderRepository, orderCustomFieldValueRepository, orderItemRepository, orderReturnRecordRepository, eventPublisher);
+        when(requestActor.resolveScopedCustomerId(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(requestActor.isAuthenticated()).thenReturn(false);
+        orderService = new OrderService(orderRepository, orderCustomFieldValueRepository, orderItemRepository, orderReturnRecordRepository, eventPublisher, requestActor);
     }
 
     @Test
