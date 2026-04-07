@@ -170,7 +170,7 @@ public class OrderService {
         Order order = orderRepository.findById(orderId)
             .orElseThrow(() -> new NotFoundException("Order not found"));
         String previousStatus = order.getStatus();
-        if (status == null || status.equalsIgnoreCase(previousStatus)) {
+        if (status == null || status.equalsIgnoreCase(previousStatus) || !canPaymentStatusOverride(previousStatus)) {
             return;
         }
         order.setStatus(status);
@@ -210,6 +210,27 @@ public class OrderService {
             || "PAYMENT_CANCELLED".equalsIgnoreCase(status)
             || "PAYMENT_CANCELED".equalsIgnoreCase(status)
             || "CANCELLED".equalsIgnoreCase(status));
+    }
+
+    private boolean canPaymentStatusOverride(String currentStatus) {
+        if (currentStatus == null || currentStatus.isBlank()) {
+            return true;
+        }
+        return switch (currentStatus.trim().toUpperCase(java.util.Locale.ROOT)) {
+            case "NEW",
+                "CREATED",
+                "PENDING_PAYMENT",
+                "REDIRECT_REQUIRED",
+                "APPROVED",
+                "CAPTURE_PENDING",
+                "PENDING_OFFLINE",
+                "PAYMENT_FAILED",
+                "PAYMENT_CANCELLED",
+                "PAYMENT_CANCELED",
+                "PAID",
+                "REFUNDED" -> true;
+            default -> false;
+        };
     }
 
     private boolean shouldReleaseReservationsOnDelete(String status) {

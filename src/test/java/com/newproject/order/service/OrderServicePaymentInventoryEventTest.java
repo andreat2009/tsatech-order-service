@@ -97,6 +97,33 @@ class OrderServicePaymentInventoryEventTest {
     }
 
     @Test
+    void paymentEventsDoNotOverrideAdminManagedStatuses() {
+        Order order = orderWithStatus("Delivered");
+
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(order));
+
+        orderService.syncStatusFromPayment(10L, "PAID");
+
+        org.junit.jupiter.api.Assertions.assertEquals("Delivered", order.getStatus());
+        verify(orderRepository, never()).save(any(Order.class));
+        verify(eventPublisher, never()).publish(eq("ORDER_UPDATED"), eq("order"), eq("10"), any());
+    }
+
+    @Test
+    void paymentEventsStillUpdatePaymentLifecycleStatuses() {
+        Order order = orderWithStatus("PAID");
+
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        orderService.syncStatusFromPayment(10L, "REFUNDED");
+
+        org.junit.jupiter.api.Assertions.assertEquals("REFUNDED", order.getStatus());
+        verify(orderRepository).save(order);
+        verify(eventPublisher).publish(eq("ORDER_UPDATED"), eq("order"), eq("10"), any());
+    }
+
+    @Test
     void deletePendingOrderReleasesInventoryAndDeletesDependents() {
         Order order = orderWithStatus("PENDING_PAYMENT");
         OrderItem item = orderItem(order, 11L, 1008L, 2);
