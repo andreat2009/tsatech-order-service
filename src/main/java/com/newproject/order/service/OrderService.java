@@ -62,6 +62,10 @@ public class OrderService {
         order.setCustomerId(request.getCustomerId());
         order.setCurrency(request.getCurrency());
         order.setTotal(request.getTotal());
+        order.setDiscountTotal(request.getDiscountTotal());
+        order.setCustomerGroupCode(request.getCustomerGroupCode());
+        order.setAppliedCouponCode(request.getAppliedCouponCode());
+        order.setAppliedOfferCodes(request.getAppliedOfferCodes());
         order.setStatus(request.getStatus() != null ? request.getStatus() : "NEW");
         order.setCustomerEmail(request.getCustomerEmail());
         order.setCustomerFirstName(request.getCustomerFirstName());
@@ -95,6 +99,18 @@ public class OrderService {
 
         order.setCurrency(request.getCurrency());
         order.setTotal(request.getTotal());
+        if (request.getDiscountTotal() != null) {
+            order.setDiscountTotal(request.getDiscountTotal());
+        }
+        if (request.getCustomerGroupCode() != null) {
+            order.setCustomerGroupCode(request.getCustomerGroupCode());
+        }
+        if (request.getAppliedCouponCode() != null) {
+            order.setAppliedCouponCode(request.getAppliedCouponCode());
+        }
+        if (request.getAppliedOfferCodes() != null) {
+            order.setAppliedOfferCodes(request.getAppliedOfferCodes());
+        }
         order.setStatus(request.getStatus() != null ? request.getStatus() : order.getStatus());
         if (request.getCustomerEmail() != null) {
             order.setCustomerEmail(request.getCustomerEmail());
@@ -329,6 +345,10 @@ public class OrderService {
         response.setCustomerId(order.getCustomerId());
         response.setCurrency(order.getCurrency());
         response.setTotal(order.getTotal());
+        response.setDiscountTotal(order.getDiscountTotal());
+        response.setCustomerGroupCode(order.getCustomerGroupCode());
+        response.setAppliedCouponCode(order.getAppliedCouponCode());
+        response.setAppliedOfferCodes(order.getAppliedOfferCodes());
         response.setStatus(order.getStatus());
         response.setCustomerEmail(order.getCustomerEmail());
         response.setCustomerFirstName(order.getCustomerFirstName());
