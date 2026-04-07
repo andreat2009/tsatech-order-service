@@ -52,8 +52,6 @@ class OrderServicePaymentInventoryEventTest {
 
     @BeforeEach
     void setUp() {
-        when(requestActor.resolveScopedCustomerId(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> invocation.getArgument(0));
-        when(requestActor.isAuthenticated()).thenReturn(false);
         orderService = new OrderService(orderRepository, orderCustomFieldValueRepository, orderItemRepository, orderReturnRecordRepository, eventPublisher, requestActor);
     }
 
@@ -161,16 +159,34 @@ class OrderServicePaymentInventoryEventTest {
         verify(orderRepository).delete(order);
     }
 
+
+    @Test
+    void inventoryLifecycleEventsCarryVariantScope() {
+        Order order = orderWithStatus("PENDING_PAYMENT");
+        OrderItem item = orderItem(order, 11L, 1008L, 2);
+
+        when(orderRepository.findById(10L)).thenReturn(Optional.of(order));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderItemRepository.findByOrderId(10L)).thenReturn(List.of(item));
+
+        orderService.syncStatusFromPayment(10L, "PAYMENT_FAILED");
+
+        org.mockito.ArgumentCaptor<com.newproject.order.dto.OrderItemResponse> payload = org.mockito.ArgumentCaptor.forClass(com.newproject.order.dto.OrderItemResponse.class);
+        verify(eventPublisher).publish(eq("ORDER_ITEM_RELEASED"), eq("order_item"), eq("11"), payload.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("RED-M", payload.getValue().getVariantKey());
+        org.junit.jupiter.api.Assertions.assertEquals("Rosso / M", payload.getValue().getVariantDisplayName());
+    }
+
     @Test
     void listPagedReturnsMetadataAndContent() {
         Order order = orderWithStatus("PENDING_PAYMENT");
         order.setCreatedAt(OffsetDateTime.now());
-        when(orderRepository.findByCustomerId(eq(10L), any())).thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 5), 12));
+        when(orderRepository.findByCustomerId(any(Long.class), any())).thenReturn(new PageImpl<>(List.of(order), PageRequest.of(1, 5), 12));
         when(orderCustomFieldValueRepository.findByOrderIdOrderByIdAsc(10L)).thenReturn(List.of());
 
         PagedResponse<?> response = orderService.listPaged(10L, 1, 5);
 
-        verify(orderRepository).findByCustomerId(eq(10L), any());
+        verify(orderRepository).findByCustomerId(any(Long.class), any());
         org.junit.jupiter.api.Assertions.assertEquals(1, response.getPage());
         org.junit.jupiter.api.Assertions.assertEquals(5, response.getSize());
         org.junit.jupiter.api.Assertions.assertEquals(12, response.getTotalElements());
@@ -196,8 +212,10 @@ class OrderServicePaymentInventoryEventTest {
         item.setId(itemId);
         item.setOrder(order);
         item.setProductId(productId);
+        item.setVariantKey("RED-M");
+        item.setVariantDisplayName("Rosso / M");
         item.setQuantity(quantity);
-        item.setSku("SKU-1008");
+        item.setSku("SKU-1008-RED-M");
         item.setName("Prodotto di test");
         item.setUnitPrice(new BigDecimal("2.00"));
         return item;

@@ -38,6 +38,8 @@ public class OrderItemService {
         OrderItem item = new OrderItem();
         item.setOrder(order);
         item.setProductId(request.getProductId());
+        item.setVariantKey(normalizeVariantKey(request.getVariantKey()));
+        item.setVariantDisplayName(trimToNull(request.getVariantDisplayName()));
         item.setSku(request.getSku());
         item.setName(request.getName());
         item.setQuantity(request.getQuantity());
@@ -55,6 +57,8 @@ public class OrderItemService {
         requestActor.assertCustomerAccessIfAuthenticated(item.getOrder().getCustomerId());
 
         item.setProductId(request.getProductId());
+        item.setVariantKey(normalizeVariantKey(request.getVariantKey()));
+        item.setVariantDisplayName(trimToNull(request.getVariantDisplayName()));
         item.setSku(request.getSku());
         item.setName(request.getName());
         item.setQuantity(request.getQuantity());
@@ -99,10 +103,28 @@ public class OrderItemService {
         response.setId(item.getId());
         response.setOrderId(item.getOrder().getId());
         response.setProductId(item.getProductId());
+        response.setVariantKey(item.getVariantKey());
+        response.setVariantDisplayName(item.getVariantDisplayName());
         response.setSku(item.getSku());
         response.setName(item.getName());
         response.setQuantity(item.getQuantity());
         response.setUnitPrice(item.getUnitPrice());
         return response;
+    }
+
+    private String normalizeVariantKey(String variantKey) {
+        if (variantKey == null) {
+            return null;
+        }
+        String trimmed = variantKey.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 }

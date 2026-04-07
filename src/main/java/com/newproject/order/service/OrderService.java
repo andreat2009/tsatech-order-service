@@ -280,6 +280,8 @@ public class OrderService {
         response.setId(item.getId());
         response.setOrderId(item.getOrder().getId());
         response.setProductId(item.getProductId());
+        response.setVariantKey(item.getVariantKey());
+        response.setVariantDisplayName(item.getVariantDisplayName());
         response.setSku(item.getSku());
         response.setName(item.getName());
         response.setQuantity(item.getQuantity());
