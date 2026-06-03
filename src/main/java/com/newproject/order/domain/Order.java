@@ -56,6 +56,12 @@ public class Order {
     @Column(name = "guest_checkout", nullable = false)
     private Boolean guestCheckout;
 
+    @Column(name = "shipping_method", length = 64)
+    private String shippingMethod;
+
+    @Column(name = "shipping_cost", precision = 15, scale = 4)
+    private BigDecimal shippingCost;
+
     @Column(name = "created_at", nullable = false)
     private OffsetDateTime createdAt;
 
@@ -94,6 +100,10 @@ public class Order {
     public void setOrderComment(String orderComment) { this.orderComment = orderComment; }
     public Boolean getGuestCheckout() { return guestCheckout; }
     public void setGuestCheckout(Boolean guestCheckout) { this.guestCheckout = guestCheckout; }
+    public String getShippingMethod() { return shippingMethod; }
+    public void setShippingMethod(String shippingMethod) { this.shippingMethod = shippingMethod; }
+    public BigDecimal getShippingCost() { return shippingCost; }
+    public void setShippingCost(BigDecimal shippingCost) { this.shippingCost = shippingCost; }
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
     public OffsetDateTime getUpdatedAt() { return updatedAt; }

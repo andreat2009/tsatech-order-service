@@ -21,6 +21,8 @@ public class OrderResponse {
     private String customerLocale;
     private String orderComment;
     private Boolean guestCheckout;
+    private String shippingMethod;
+    private BigDecimal shippingCost;
     private List<OrderCustomFieldResponse> customFields;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
@@ -57,6 +59,10 @@ public class OrderResponse {
     public void setOrderComment(String orderComment) { this.orderComment = orderComment; }
     public Boolean getGuestCheckout() { return guestCheckout; }
     public void setGuestCheckout(Boolean guestCheckout) { this.guestCheckout = guestCheckout; }
+    public String getShippingMethod() { return shippingMethod; }
+    public void setShippingMethod(String shippingMethod) { this.shippingMethod = shippingMethod; }
+    public BigDecimal getShippingCost() { return shippingCost; }
+    public void setShippingCost(BigDecimal shippingCost) { this.shippingCost = shippingCost; }
     public List<OrderCustomFieldResponse> getCustomFields() { return customFields; }
     public void setCustomFields(List<OrderCustomFieldResponse> customFields) { this.customFields = customFields; }
     public OffsetDateTime getCreatedAt() { return createdAt; }

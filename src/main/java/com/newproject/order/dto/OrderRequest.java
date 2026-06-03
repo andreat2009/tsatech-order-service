@@ -11,7 +11,11 @@ public class OrderRequest {
     @NotNull
     private String currency;
 
-    @NotNull
+    /**
+     * Total dichiarato dal client: usato SOLO nei path amministrativi (ordine senza items
+     * inline). Quando {@link #items} è valorizzato il total viene ricalcolato lato server e
+     * questo valore viene ignorato.
+     */
     private BigDecimal total;
 
     private BigDecimal discountTotal;
@@ -27,6 +31,12 @@ public class OrderRequest {
     private String orderComment;
     private Boolean guestCheckout;
     private List<OrderCustomFieldRequest> customFields;
+
+    /** Righe del carrello per il checkout autoritativo single-call (prezzi risolti dal server). */
+    private List<OrderLineRequest> items;
+
+    /** Codice del metodo di spedizione scelto (risolto su shipping-service). */
+    private String shippingMethod;
 
     public Long getCustomerId() { return customerId; }
     public void setCustomerId(Long customerId) { this.customerId = customerId; }
@@ -60,4 +70,8 @@ public class OrderRequest {
     public void setGuestCheckout(Boolean guestCheckout) { this.guestCheckout = guestCheckout; }
     public List<OrderCustomFieldRequest> getCustomFields() { return customFields; }
     public void setCustomFields(List<OrderCustomFieldRequest> customFields) { this.customFields = customFields; }
+    public List<OrderLineRequest> getItems() { return items; }
+    public void setItems(List<OrderLineRequest> items) { this.items = items; }
+    public String getShippingMethod() { return shippingMethod; }
+    public void setShippingMethod(String shippingMethod) { this.shippingMethod = shippingMethod; }
 }

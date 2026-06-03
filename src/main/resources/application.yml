@@ -45,6 +45,13 @@ order:
   payment-events:
     topic: ${PAYMENT_EVENTS_TOPIC:payment.events}
 
+ecommerce:
+  services:
+    pricing-base-url: ${PRICING_BASE_URL:http://pricing-service.${APP_NAMESPACE:ecommerce}.svc.cluster.local:8443}
+    coupon-base-url: ${COUPON_BASE_URL:http://coupon-service.${APP_NAMESPACE:ecommerce}.svc.cluster.local:8443}
+    catalog-base-url: ${CATALOG_BASE_URL:http://catalog-service.${APP_NAMESPACE:ecommerce}.svc.cluster.local:8443}
+    shipping-base-url: ${SHIPPING_BASE_URL:http://shipping-service.${APP_NAMESPACE:ecommerce}.svc.cluster.local:8443}
+
 management:
   endpoints:
     web:

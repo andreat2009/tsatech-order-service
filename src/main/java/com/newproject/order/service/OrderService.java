@@ -6,18 +6,23 @@ import com.newproject.order.domain.OrderItem;
 import com.newproject.order.dto.OrderCustomFieldRequest;
 import com.newproject.order.dto.OrderCustomFieldResponse;
 import com.newproject.order.dto.OrderItemResponse;
+import com.newproject.order.dto.OrderLineRequest;
 import com.newproject.order.dto.OrderRequest;
 import com.newproject.order.dto.OrderResponse;
 import com.newproject.order.dto.PagedResponse;
 import com.newproject.order.events.EventPublisher;
+import com.newproject.order.exception.BadRequestException;
 import com.newproject.order.exception.NotFoundException;
+import com.newproject.order.pricing.CheckoutPricingClient;
 import com.newproject.order.repository.OrderCustomFieldValueRepository;
 import com.newproject.order.repository.OrderItemRepository;
 import com.newproject.order.repository.OrderRepository;
 import com.newproject.order.repository.OrderReturnRecordRepository;
 import com.newproject.order.security.RequestActor;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -37,6 +42,7 @@ public class OrderService {
     private final OrderReturnRecordRepository orderReturnRecordRepository;
     private final EventPublisher eventPublisher;
     private final RequestActor requestActor;
+    private final CheckoutPricingClient checkoutPricingClient;
 
     public OrderService(
         OrderRepository orderRepository,
@@ -44,7 +50,8 @@ public class OrderService {
         OrderItemRepository orderItemRepository,
         OrderReturnRecordRepository orderReturnRecordRepository,
         EventPublisher eventPublisher,
-        RequestActor requestActor
+        RequestActor requestActor,
+        CheckoutPricingClient checkoutPricingClient
     ) {
         this.orderRepository = orderRepository;
         this.orderCustomFieldValueRepository = orderCustomFieldValueRepository;
@@ -52,20 +59,19 @@ public class OrderService {
         this.orderReturnRecordRepository = orderReturnRecordRepository;
         this.eventPublisher = eventPublisher;
         this.requestActor = requestActor;
+        this.checkoutPricingClient = checkoutPricingClient;
     }
 
     @Transactional
     public OrderResponse create(OrderRequest request) {
         requestActor.assertCustomerAccessIfAuthenticated(request.getCustomerId());
 
+        boolean authoritative = request.getItems() != null && !request.getItems().isEmpty();
+
         Order order = new Order();
         order.setCustomerId(request.getCustomerId());
         order.setCurrency(request.getCurrency());
-        order.setTotal(request.getTotal());
-        order.setDiscountTotal(request.getDiscountTotal());
         order.setCustomerGroupCode(request.getCustomerGroupCode());
-        order.setAppliedCouponCode(request.getAppliedCouponCode());
-        order.setAppliedOfferCodes(request.getAppliedOfferCodes());
         order.setStatus(request.getStatus() != null ? request.getStatus() : "NEW");
         order.setCustomerEmail(request.getCustomerEmail());
         order.setCustomerFirstName(request.getCustomerFirstName());
@@ -74,15 +80,124 @@ public class OrderService {
         order.setCustomerLocale(request.getCustomerLocale());
         order.setOrderComment(request.getOrderComment());
         order.setGuestCheckout(Boolean.TRUE.equals(request.getGuestCheckout()));
+
+        PricedCart priced = null;
+        if (authoritative) {
+            priced = priceCart(request);
+            order.setTotal(priced.total());
+            order.setDiscountTotal(priced.discount());
+            order.setShippingMethod(priced.shippingMethod());
+            order.setShippingCost(priced.shippingCost());
+            order.setAppliedCouponCode(priced.appliedCoupon());
+            order.setAppliedOfferCodes(priced.appliedOfferCodes());
+        } else {
+            // Senza items il total non è verificabile lato server: ammesso solo agli admin
+            // (es. bozze d'ordine). Chiunque altro (anonimo/guest/cliente, incluso chi chiama
+            // il gateway diretto) DEVE passare gli items per il ricalcolo autoritativo.
+            if (!requestActor.isAdmin()) {
+                throw new BadRequestException("Order items are required");
+            }
+            if (request.getTotal() == null) {
+                throw new BadRequestException("Order total is required when no items are provided");
+            }
+            order.setTotal(request.getTotal());
+            order.setDiscountTotal(request.getDiscountTotal());
+            order.setAppliedCouponCode(request.getAppliedCouponCode());
+            order.setAppliedOfferCodes(request.getAppliedOfferCodes());
+            order.setShippingMethod(request.getShippingMethod());
+        }
+
         OffsetDateTime now = OffsetDateTime.now();
         order.setCreatedAt(now);
         order.setUpdatedAt(now);
 
         Order saved = orderRepository.save(order);
         syncCustomFields(saved, request.getCustomFields());
+        if (authoritative) {
+            persistAuthoritativeItems(saved, priced.lines());
+        }
         eventPublisher.publish("ORDER_CREATED", "order", saved.getId().toString(), toResponse(saved));
         return toResponse(saved);
     }
+
+    /**
+     * Ricalcolo prezzo autoritativo: i prezzi unitari, lo sconto, il costo di spedizione e il
+     * total vengono determinati lato server (pricing/coupon/catalog/shipping). Qualunque prezzo
+     * arrivato dal client viene scartato.
+     */
+    private PricedCart priceCart(OrderRequest request) {
+        List<OrderLineRequest> items = request.getItems();
+        for (OrderLineRequest item : items) {
+            if (item == null || item.getProductId() == null
+                || item.getQuantity() == null || item.getQuantity() <= 0) {
+                throw new BadRequestException("Invalid order line (productId and positive quantity required)");
+            }
+        }
+
+        Map<String, BigDecimal> unitPrices = checkoutPricingClient.resolveUnitPrices(
+            items, request.getCurrency(), request.getCustomerGroupCode());
+
+        BigDecimal subtotal = BigDecimal.ZERO;
+        int itemCount = 0;
+        List<PricedLine> lines = new java.util.ArrayList<>();
+        for (OrderLineRequest item : items) {
+            String variantKey = normalizeVariantKey(item.getVariantKey());
+            BigDecimal unitPrice = unitPrices.get(item.getProductId() + "|" + (variantKey == null ? "" : variantKey));
+            if (unitPrice == null) {
+                throw new BadRequestException("No price available for product " + item.getProductId());
+            }
+            int quantity = item.getQuantity();
+            subtotal = subtotal.add(unitPrice.multiply(BigDecimal.valueOf(quantity)));
+            itemCount += quantity;
+            lines.add(new PricedLine(item, variantKey, unitPrice));
+        }
+
+        CheckoutPricingClient.ResolvedShipping shipping = checkoutPricingClient.resolveShipping(request.getShippingMethod());
+        BigDecimal shippingCost = shipping.cost() != null ? shipping.cost() : BigDecimal.ZERO;
+
+        CheckoutPricingClient.QuoteResult quote = checkoutPricingClient.quote(
+            subtotal, shippingCost, request.getAppliedCouponCode(), request.getCustomerGroupCode(), itemCount);
+
+        return new PricedCart(lines, quote.total(), quote.discount(), shipping.code(), shippingCost,
+            quote.appliedCoupon(), quote.appliedOfferCodes());
+    }
+
+    private void persistAuthoritativeItems(Order order, List<PricedLine> lines) {
+        for (PricedLine line : lines) {
+            OrderLineRequest source = line.source();
+            OrderItem item = new OrderItem();
+            item.setOrder(order);
+            item.setProductId(source.getProductId());
+            item.setVariantKey(line.variantKey());
+            item.setVariantDisplayName(trimToNull(source.getVariantDisplayName()));
+            item.setSku(source.getSku());
+            item.setName(source.getName());
+            item.setQuantity(source.getQuantity());
+            item.setUnitPrice(line.unitPrice());
+            OrderItem savedItem = orderItemRepository.save(item);
+            eventPublisher.publish("ORDER_ITEM_ADDED", "order_item", savedItem.getId().toString(), toOrderItemResponse(savedItem));
+        }
+    }
+
+    private String normalizeVariantKey(String variantKey) {
+        if (variantKey == null) {
+            return null;
+        }
+        String trimmed = variantKey.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private record PricedLine(OrderLineRequest source, String variantKey, BigDecimal unitPrice) {}
+
+    private record PricedCart(
+        List<PricedLine> lines,
+        BigDecimal total,
+        BigDecimal discount,
+        String shippingMethod,
+        BigDecimal shippingCost,
+        String appliedCoupon,
+        String appliedOfferCodes
+    ) {}
 
     @Transactional
     public OrderResponse update(Long id, OrderRequest request) {
@@ -97,19 +212,26 @@ public class OrderService {
             order.setCustomerId(request.getCustomerId());
         }
 
-        order.setCurrency(request.getCurrency());
-        order.setTotal(request.getTotal());
-        if (request.getDiscountTotal() != null) {
-            order.setDiscountTotal(request.getDiscountTotal());
-        }
-        if (request.getCustomerGroupCode() != null) {
-            order.setCustomerGroupCode(request.getCustomerGroupCode());
-        }
-        if (request.getAppliedCouponCode() != null) {
-            order.setAppliedCouponCode(request.getAppliedCouponCode());
-        }
-        if (request.getAppliedOfferCodes() != null) {
-            order.setAppliedOfferCodes(request.getAppliedOfferCodes());
+        // I campi che determinano l'importo addebitabile sono modificabili SOLO da admin.
+        // Per gli update non-admin (es. dati cliente del guest checkout) i valori autoritativi
+        // calcolati alla creazione vengono preservati, così non si può abbassare il total via PUT.
+        if (requestActor.isAdmin()) {
+            order.setCurrency(request.getCurrency());
+            if (request.getTotal() != null) {
+                order.setTotal(request.getTotal());
+            }
+            if (request.getDiscountTotal() != null) {
+                order.setDiscountTotal(request.getDiscountTotal());
+            }
+            if (request.getCustomerGroupCode() != null) {
+                order.setCustomerGroupCode(request.getCustomerGroupCode());
+            }
+            if (request.getAppliedCouponCode() != null) {
+                order.setAppliedCouponCode(request.getAppliedCouponCode());
+            }
+            if (request.getAppliedOfferCodes() != null) {
+                order.setAppliedOfferCodes(request.getAppliedOfferCodes());
+            }
         }
         order.setStatus(request.getStatus() != null ? request.getStatus() : order.getStatus());
         if (request.getCustomerEmail() != null) {
@@ -149,6 +271,19 @@ public class OrderService {
             .orElseThrow(() -> new NotFoundException("Order not found"));
         requestActor.assertCustomerAccessIfAuthenticated(order.getCustomerId());
         return toResponse(order);
+    }
+
+    /**
+     * Vista autoritativa minimale per chiamate server-to-server (es. payment-service che valida
+     * amount == total). Non applica lo scope cliente: l'endpoint è raggiungibile solo dentro il
+     * cluster (nessun Ingress, il gateway non instrada /summary pubblicamente).
+     */
+    @Transactional(readOnly = true)
+    public com.newproject.order.dto.OrderSummaryResponse getSummary(Long id) {
+        Order order = orderRepository.findById(id)
+            .orElseThrow(() -> new NotFoundException("Order not found"));
+        return new com.newproject.order.dto.OrderSummaryResponse(
+            order.getId(), order.getTotal(), order.getCurrency(), order.getStatus());
     }
 
     @Transactional(readOnly = true)
@@ -357,6 +492,8 @@ public class OrderService {
         response.setCustomerLocale(order.getCustomerLocale());
         response.setOrderComment(order.getOrderComment());
         response.setGuestCheckout(order.getGuestCheckout());
+        response.setShippingMethod(order.getShippingMethod());
+        response.setShippingCost(order.getShippingCost());
         response.setCustomFields(orderCustomFieldValueRepository.findByOrderIdOrderByIdAsc(order.getId()).stream().map(value -> {
             OrderCustomFieldResponse field = new OrderCustomFieldResponse();
             field.setId(value.getId());

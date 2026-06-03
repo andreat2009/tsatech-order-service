@@ -46,6 +46,11 @@ public class OrderController {
         return orderService.get(id);
     }
 
+    @GetMapping("/{id}/summary")
+    public com.newproject.order.dto.OrderSummaryResponse summary(@PathVariable Long id) {
+        return orderService.getSummary(id);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public OrderResponse create(@Valid @RequestBody OrderRequest request) {

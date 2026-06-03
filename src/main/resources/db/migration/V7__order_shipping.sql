@@ -1,0 +1,3 @@
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS shipping_method VARCHAR(64),
+    ADD COLUMN IF NOT EXISTS shipping_cost NUMERIC(15,4);
