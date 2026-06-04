@@ -14,6 +14,7 @@ import com.newproject.order.repository.OrderCustomFieldValueRepository;
 import com.newproject.order.repository.OrderItemRepository;
 import com.newproject.order.repository.OrderRepository;
 import com.newproject.order.repository.OrderReturnRecordRepository;
+import com.newproject.order.pricing.CheckoutPricingClient;
 import com.newproject.order.security.RequestActor;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -48,11 +49,14 @@ class OrderServicePaymentInventoryEventTest {
     @Mock
     private RequestActor requestActor;
 
+    @Mock
+    private CheckoutPricingClient checkoutPricingClient;
+
     private OrderService orderService;
 
     @BeforeEach
     void setUp() {
-        orderService = new OrderService(orderRepository, orderCustomFieldValueRepository, orderItemRepository, orderReturnRecordRepository, eventPublisher, requestActor);
+        orderService = new OrderService(orderRepository, orderCustomFieldValueRepository, orderItemRepository, orderReturnRecordRepository, eventPublisher, requestActor, checkoutPricingClient);
     }
 
     @Test
