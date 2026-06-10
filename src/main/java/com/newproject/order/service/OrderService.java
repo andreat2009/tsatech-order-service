@@ -233,7 +233,15 @@ public class OrderService {
                 order.setAppliedOfferCodes(request.getAppliedOfferCodes());
             }
         }
-        order.setStatus(request.getStatus() != null ? request.getStatus() : order.getStatus());
+        // Lo status NON è modificabile da un chiamante anonimo (guest checkout): impedisce a
+        // un anonimo che enumera gli id degli ordini guest di portarne uno a PAID/SHIPPED.
+        // Le transizioni di stato avvengono via flussi autenticati/admin o eventi di pagamento.
+        if (request.getStatus() != null && !request.getStatus().equals(order.getStatus())) {
+            if (!requestActor.isAuthenticated()) {
+                throw new AccessDeniedException("Guest non può modificare lo stato dell'ordine");
+            }
+            order.setStatus(request.getStatus());
+        }
         if (request.getCustomerEmail() != null) {
             order.setCustomerEmail(request.getCustomerEmail());
         }
