@@ -16,6 +16,18 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Component
 public class RequestActor {
     public static final String CUSTOMER_ID_HEADER = "X-Authenticated-Customer-Id";
+    // SECURITY (H5): token opaco presentato dal BFF per autorizzare le mutazioni guest.
+    public static final String GUEST_ORDER_TOKEN_HEADER = "X-Guest-Order-Token";
+
+    /** Token opaco per-ordine presentato sulle mutazioni guest non autenticate. */
+    public Optional<String> guestOrderToken() {
+        HttpServletRequest request = currentRequest();
+        if (request == null) {
+            return Optional.empty();
+        }
+        String header = request.getHeader(GUEST_ORDER_TOKEN_HEADER);
+        return StringUtils.hasText(header) ? Optional.of(header.trim()) : Optional.empty();
+    }
 
     public boolean isAuthenticated() {
         Authentication authentication = authentication();

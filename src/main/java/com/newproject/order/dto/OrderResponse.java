@@ -21,6 +21,10 @@ public class OrderResponse {
     private String customerLocale;
     private String orderComment;
     private Boolean guestCheckout;
+    // SECURITY (H5): valorizzato SOLO nella risposta di creazione di un guest order, cosi'
+    // il chiamante (il BFF web-portal) puo' conservarlo in sessione e ripresentarlo sulle
+    // mutazioni successive. toResponse() non lo popola, quindi non trapela su GET/list/eventi.
+    private String guestToken;
     private String shippingMethod;
     private BigDecimal shippingCost;
     private List<OrderCustomFieldResponse> customFields;
@@ -59,6 +63,8 @@ public class OrderResponse {
     public void setOrderComment(String orderComment) { this.orderComment = orderComment; }
     public Boolean getGuestCheckout() { return guestCheckout; }
     public void setGuestCheckout(Boolean guestCheckout) { this.guestCheckout = guestCheckout; }
+    public String getGuestToken() { return guestToken; }
+    public void setGuestToken(String guestToken) { this.guestToken = guestToken; }
     public String getShippingMethod() { return shippingMethod; }
     public void setShippingMethod(String shippingMethod) { this.shippingMethod = shippingMethod; }
     public BigDecimal getShippingCost() { return shippingCost; }

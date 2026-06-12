@@ -56,6 +56,13 @@ public class Order {
     @Column(name = "guest_checkout", nullable = false)
     private Boolean guestCheckout;
 
+    // SECURITY (H5): segreto opaco per-ordine generato alla creazione di un guest order.
+    // Le mutazioni non autenticate di un guest order devono presentare questo token
+    // (header X-Guest-Order-Token), impedendo a un anonimo di manomettere ordini altrui
+    // enumerando gli id sequenziali.
+    @Column(name = "guest_token", length = 64)
+    private String guestToken;
+
     @Column(name = "shipping_method", length = 64)
     private String shippingMethod;
 
@@ -100,6 +107,8 @@ public class Order {
     public void setOrderComment(String orderComment) { this.orderComment = orderComment; }
     public Boolean getGuestCheckout() { return guestCheckout; }
     public void setGuestCheckout(Boolean guestCheckout) { this.guestCheckout = guestCheckout; }
+    public String getGuestToken() { return guestToken; }
+    public void setGuestToken(String guestToken) { this.guestToken = guestToken; }
     public String getShippingMethod() { return shippingMethod; }
     public void setShippingMethod(String shippingMethod) { this.shippingMethod = shippingMethod; }
     public BigDecimal getShippingCost() { return shippingCost; }

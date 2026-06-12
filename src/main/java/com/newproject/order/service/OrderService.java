@@ -20,9 +20,12 @@ import com.newproject.order.repository.OrderRepository;
 import com.newproject.order.repository.OrderReturnRecordRepository;
 import com.newproject.order.security.RequestActor;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -80,6 +83,11 @@ public class OrderService {
         order.setCustomerLocale(request.getCustomerLocale());
         order.setOrderComment(request.getOrderComment());
         order.setGuestCheckout(Boolean.TRUE.equals(request.getGuestCheckout()));
+        // SECURITY (H5): un guest order nasce con un token opaco; servira' per autorizzare
+        // le sue mutazioni non autenticate (vedi assertOrderMutationAllowed).
+        if (Boolean.TRUE.equals(order.getGuestCheckout())) {
+            order.setGuestToken(UUID.randomUUID().toString());
+        }
 
         PricedCart priced = null;
         if (authoritative) {
@@ -117,7 +125,11 @@ public class OrderService {
             persistAuthoritativeItems(saved, priced.lines());
         }
         eventPublisher.publish("ORDER_CREATED", "order", saved.getId().toString(), toResponse(saved));
-        return toResponse(saved);
+        // SECURITY (H5): il guest token e' restituito SOLO qui (al creatore dell'ordine).
+        // L'evento pubblicato sopra usa toResponse(), che non lo include -> niente leak su Kafka.
+        OrderResponse response = toResponse(saved);
+        response.setGuestToken(saved.getGuestToken());
+        return response;
     }
 
     /**
@@ -365,6 +377,17 @@ public class OrderService {
         }
         if (!Boolean.TRUE.equals(order.getGuestCheckout())) {
             throw new AccessDeniedException("Only guest orders can be updated without authentication");
+        }
+        // SECURITY (H5): mutazione di un guest order da chiamante non autenticato -> richiede
+        // il token opaco generato alla creazione (header X-Guest-Order-Token). Impedisce a un
+        // anonimo di manomettere ordini altrui enumerando gli id sequenziali. Gli ordini senza
+        // token (legacy / non-guest) non sono mutabili in anonimo.
+        String presented = requestActor.guestOrderToken().orElse(null);
+        if (order.getGuestToken() == null || presented == null
+            || !MessageDigest.isEqual(
+                order.getGuestToken().getBytes(StandardCharsets.UTF_8),
+                presented.getBytes(StandardCharsets.UTF_8))) {
+            throw new AccessDeniedException("Missing or invalid guest order token");
         }
     }
 
